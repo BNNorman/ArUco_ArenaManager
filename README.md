@@ -1,3 +1,5 @@
+# UNTESTED - waiting for info from Rob Miles
+
 # ArUco_ArenaManager
 Python code to manage a pixelbot game arena using ArUco markers
 

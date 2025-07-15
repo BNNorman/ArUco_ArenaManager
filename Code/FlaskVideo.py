@@ -1,4 +1,7 @@
 import os
+
+from Code.ArenaManager import aruco_detector
+
 print(os.path)
 
 # import the necessary packages
@@ -31,14 +34,17 @@ def index():
     return render_template("index.html")
 
 # image processing 
-def _getVideoFrame():
-    # grab global references to the video stream, output frame, and
-    # lock variables
-    # to be called frequently from a program loop (ArenaManager)
-    
+def _getVideoFrame() -> Any:
+    """
+	_getVideoFrame()
+	
+    grab the current frame and resize to 640x480
+
+    """
     # imshow doesn't like this as a memoryview
-    videoFrame = videoDetector.grabFrame()
-            
+	# haven't tried imageview with video streaming
+    videoFrame,_=aruco_detector.getFrame() # ignore ArUco markers
+
     # scale down maintaining aspect ratio
     # just making a 640 pixel wide image for streaming
     h,w=videoFrame.shape[:2]
@@ -47,19 +53,21 @@ def _getVideoFrame():
 
     return cv2.resize(videoFrame, (640,newHeight), interpolation=cv2.INTER_LINEAR)
 
-def _generate():
-    '''
+
+def _generate() -> Any:
+    """
     Generate the video stream
+
     called from video_feed() below
-    
+
     Also displays the image locally using opencv
-    
+
     :return: Nothing
-    '''
+    """
 
     while True:
         videoFrame=_getVideoFrame()
-        cv2.imshow("FlaskVideo.py",videoFrame)
+        cv2.imshow("FlaskVideo.py",videoFrame) # comment out later
 
         if videoFrame is not None:
             # encode the frame in JPEG format
@@ -82,8 +90,9 @@ def video_feed():
 
 # check to see if this is the main thread of execution
 if __name__ == '__main__':
-    videoDetector=VideoDetectorLib.ARuCo()
-    
+
+    videoDetector=VideoDetectorLib.arucoDetector()
+		
     try:
         while True:
             # start the flask app

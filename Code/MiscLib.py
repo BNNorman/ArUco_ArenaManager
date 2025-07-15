@@ -1,6 +1,7 @@
 # MiscLib.py
 #
 # miscellaneous methods
+import math
 
 def distance(self,x1,y1,x2,y2)->int:
 	# distance between two points
@@ -17,7 +18,7 @@ def angle(self,x1,y1,x2,y2) -> int:
 	# using Tan=o/a
 	ang=math.degrees(math.tan((y2-y1)/(x2-x1)))
 		
-	return ang
+	return int(ang)
 		
 def heading(self,angle):
 	# angles normally have zero on the east compass point

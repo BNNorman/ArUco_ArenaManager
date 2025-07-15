@@ -21,13 +21,12 @@ import sys
 import time
 import logging
 
-from settings import MQTT_BROKER, MQTT_USER, MQTT_PASS,MQTT_CONNECT_TIMEOUT,MQTT_KEEP_ALIVE, DEFAULT_TOPIC
-
+from config import settings
 
 class MQTT():
 
 
-    def __init__(self,broker=MQTT_BROKER,user=MQTT_USER,password=MQTT_PASS, defaultTopic=DEFAULT_TOPIC):
+    def __init__(self,broker=settings.MQTT_BROKER,user=settings.MQTT_USER,password=settings.MQTT_PASS, defaultTopic=settings.MQTT_DEFAULT_TOPIC):
 
         self.mqttc=paho.Client()
         self.topicCallbacks={}      # [topic]=callback
@@ -135,7 +134,7 @@ class MQTT():
     #
     def on_subscribe(self,mqttc,obj,mid,granted_qos):
         global logging
-        logging.info("on_subscribe(): Subscribed with mid=%s",str(mid))
+        logging.info(f"on_subscribe(): Subscribed to {mqttc.msg.topic} qos {granted_qos} with mid=%s",str(mid))
 
 
     ################################
@@ -165,12 +164,12 @@ class MQTT():
         # on_connect sets a global flag brokerConnected
         startConnect = time.time()
         self.mqttc.loop_start()	# runs in the background, reconnects if needed
-        self.mqttc.connect(self.broker, keepalive=MQTT_KEEP_ALIVE)
+        self.mqttc.connect(self.broker, keepalive=settings.MQTT_KEEP_ALIVE)
 
         while not self.brokerConnected:
             # "connected" callback may take some time
-            if (time.time() - startConnect) > MQTT_CONNECT_TIMEOUT:
-                logging.error(f"connectToBroker(): broker on_connect time out {MQTT_CONNECT_TIMEOUT}")
+            if (time.time() - startConnect) > settings.MQTT_CONNECT_TIMEOUT:
+                logging.error(f"connectToBroker(): broker on_connect time out {settings.MQTT_CONNECT_TIMEOUT}")
                 return False
 
         logging.info(f"connectToBroker(): Connected to MQTT broker after {time.time()-startConnect} s")
