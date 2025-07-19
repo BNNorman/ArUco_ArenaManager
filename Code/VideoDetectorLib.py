@@ -7,7 +7,6 @@ import time
 import traceback
 import sys
 
-from Code.ArenaManager import aruco_detector
 from config import settings
 
 class arucoDetector:
@@ -43,7 +42,7 @@ class arucoDetector:
 		"""
 		self.cam.stop()
 
-	def grabFrame(self) ->(Any,dict):
+	def grabFrame(self) ->(any,dict):
 		"""grabFrame()
 		
 
@@ -163,28 +162,24 @@ class arucoDetector:
 			return self.markers
 		
 if __name__ == "__main__":
-	A=aruco_detector(calibrationId=settings.CALIBRATION_MARKER,calibrationSize=settings.CALIBRATION_SIZE)
+	A=arucoDetector(calibrationId=settings.CALIBRATION_MARKER,calibrationSize=settings.CALIBRATION_SIZE)
 	
 	pixel_to_mm_ratio=None
 	
 	try:
 		while True:
-			frame=A.grabFrame()
-			#if frame:
-				
+			frame,markers=A.grabFrame()
+
 			cv2.imshow("frame",frame)
-				
-			markers=A.getMarkers()
-			
+							
 			if pixel_to_mm_ratio is None:
 				pixel_to_mm_ratio=A.getScale()
 				#print(F"scale {pixel_to_mm_ratio}")
-		
 			
 			for id in markers:
 				print(F"id {id} cx,cy,angle={markers[id]}")
 			
-			
+
 			cv2.waitKey(1)
 		
 	except :

@@ -134,7 +134,7 @@ class MQTT():
     #
     def on_subscribe(self,mqttc,obj,mid,granted_qos):
         global logging
-        logging.info(f"on_subscribe(): Subscribed to {mqttc.msg.topic} qos {granted_qos} with mid=%s",str(mid))
+        logging.info(f"on_subscribe(): Subscribed with mid {mid} granted_qos {granted_qos}")
 
 
     ################################

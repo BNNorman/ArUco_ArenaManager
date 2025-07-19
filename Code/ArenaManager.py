@@ -114,11 +114,13 @@ def send_bots_home():
 	Monitors the position of each bot till it gets within the home base and when
 	at home tells the bot to face it's opponent.
 	"""
+	print("Send bots home")
 	# first tell each bot where it's base is
 	for bot in pixelbots:
 		pixelbot.broadcastPositionInfo()
 
 	# check if all bots are homes
+	print("Waiting for all bots to home")
 	homed=0
 	while homed<(2*settings.NUM_TEAM_BASES):
 		homed=0 # restart counting
