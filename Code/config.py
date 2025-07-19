@@ -1,4 +1,4 @@
-class settings()
+class settings():
     STREAMING=False # set to True to enable Flask streaming
 
     MQTT_BROKER = '192.168.1.105' # home PiNAS device
