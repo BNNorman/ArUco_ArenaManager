@@ -26,6 +26,7 @@ class arucoDetector:
 		camera_config=self.cam.create_still_configuration(main={"size": (width,height),'format':"RGB888"})
 		self.cam.configure(camera_config)
 		self.cam.start()
+		
 
 		self.aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_6X6_250)
 		self.parameters = cv2.aruco.DetectorParameters()
@@ -63,13 +64,12 @@ class arucoDetector:
 			# convert to grey scale
 			gray=cv2.cvtColor(self.frame,cv2.COLOR_BGR2GRAY)
 			# make black & white to enhance detection
-			_, threshold = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY)
+			_, threshold = cv2.threshold(gray, settings.BW_MIN_THRESH, 255, cv2.THRESH_BINARY)
 
-			#cv2.imshow("thresh",threshold)
+			cv2.imshow("thresh",threshold)
 
 			# Detect the markers
 			corners, ids, _ = cv2.aruco.detectMarkers(threshold,self.aruco_dict)
-
 			if ids is not None:
 				# adds an outline and red corner
 				# remove on release
@@ -169,17 +169,19 @@ if __name__ == "__main__":
 	try:
 		while True:
 			frame,markers=A.grabFrame()
-
+			#print("Num markers=",len(markers))
+				
 			cv2.imshow("frame",frame)
-							
+			
 			if pixel_to_mm_ratio is None:
 				pixel_to_mm_ratio=A.getScale()
 				#print(F"scale {pixel_to_mm_ratio}")
+		
 			
 			for id in markers:
 				print(F"id {id} cx,cy,angle={markers[id]}")
 			
-
+			
 			cv2.waitKey(1)
 		
 	except :

@@ -70,6 +70,19 @@ class pixelbot:
 	def stop(selfself):
 		pass
 
+def get_home_bases()-> int:
+	"""
+	return when all home bases are found
+	"""
+	print("Scanning for home bases")
+	count=0
+	while count<settings.NUM_TEAM_BASES:
+		_,markers=aruco_detector.grabFrame() # ignore video frame
+		count=0
+		for id in markers.keys():
+			if id in settings.ALL_BASES:
+				count+=1
+
 def get_pixelbots()->None:
 	"""build pixelbot teams
 	
@@ -77,6 +90,7 @@ def get_pixelbots()->None:
 	"""
 	global pixelbots # dict of bots
 	
+	print("Scanning for pixelbots")
 	_,markers=aruco_detector.grabFrame() # ignore video frame
 	
 	team=1
@@ -114,13 +128,13 @@ def send_bots_home():
 	Monitors the position of each bot till it gets within the home base and when
 	at home tells the bot to face it's opponent.
 	"""
-	print("Send bots home")
+	print("Telling pixelbots to go to home base") 
 	# first tell each bot where it's base is
 	for bot in pixelbots:
 		pixelbot.broadcastPositionInfo()
 
 	# check if all bots are homes
-	print("Waiting for all bots to home")
+	print("Waiting till they all reach their home bases")
 	homed=0
 	while homed<(2*settings.NUM_TEAM_BASES):
 		homed=0 # restart counting
@@ -169,13 +183,18 @@ def updatePixelbots()->None:
 			pixelbots[botId].broadcastPositionInfo()
 		except:
 			pass
-	
+
+# scan for the baes first 
+get_home_bases()
+print("All home bases found")
+
 # identify pixelbots and team bases	
 get_pixelbots()
 
 # send commands to each bot to go to their home base
 # returns when all done
 send_bots_home()
+print("All pixelbots are home and running")
 
 # the game may commence according to the pythonish
 # programs they have.
