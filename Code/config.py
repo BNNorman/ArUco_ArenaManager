@@ -1,35 +1,57 @@
 class settings():
     STREAMING=False # set to True to enable Flask streaming
 
-    MQTT_BROKER = 'localhost' # home PiNAS device
-    MQTT_USER =   None    # might be brian
-    MQTT_PASS = None        # might be Grunge42
+    #MQTT_BROKER = 'localhost' # home PiNAS device
+    MQTT_BROKER='ns349814.ip-178-32-221.eu'
+    #MQTT_USER =   None    # might be brian
+    MQTT_USER = "cleverlittleboxes"
+    #MQTT_PASS = None        # 
+    MQTT_PASS="Boxing-Clever-Marmoset!"
 
     MQTT_CONNECT_TIMEOUT=10
     MQTT_KEEP_ALIVE=60
 
-    MQTT_DEFAULT_TOPIC="pixelbot/#" # everything
+    MQTT_COMMAND_TOPIC="lb/command/" # everything
     MQTT_LOCATION_TOPIC="pixelbot/loc"
 
-    VIDEO_WIDTH=1920
-    VIDEO_HEIGHT=790
+    VIDEO_WIDTH=1280
+    VIDEO_HEIGHT=720
 
-    CALIBRATION_MARKER=200	# marker to use for calibration
-    CALIBRATION_SIZE=105	# mm size on paper
+    CALIBRATION_MARKER=200	    # marker to use for calibration
+    CALIBRATION_SIZE_MM=52		# mm side size on paper
+    CALIBRATION_PERIM_MM=4*52
 
-    BW_MIN_THRESH=60        # B/W threshold min, the lower the better
+    BW_THRESHOLD=127
 
-    # arena markers are not broadcast (for now)
-    ARENA_ARUCO_CORNERS=[100,101,102,103]
-    ARENA_ARUCO_MARKERS=(104,200) # min,max
+    baseId=0
+    pixelBots={
+    baseId:("Agent Orange","CLB-da3371"), 
+    baseId+1: ("Alloys Boys","CLB-d3343a"),
+    baseId+2:("Blue Steel","CLB-1cea51"),
+    baseId+3:("Colonel White","CLB-0f9b77"),
+    baseId+4:("Doctor Black","CLB-2c7e79"),
+    baseId+5:("Green Hoops","CLB-08ae9a"),
+    baseId+6:("Mr Green","CLB-cf3b1f"),
+    baseId+7:("Old Red","CLB-c23d87"),
+    baseId+8:("Sunshine","CLB-c09546"),
+    baseId+9:("Violet Redwheels","CLB-1df4e3"),
+	baseId+20:("Deep Purple","CLB-E661640843492631"),
+	baseId+21:("Goldilocks","CLB-E66164084320A62E"),
+	baseId+22:("Nobody","CLB-E66164084367842E")
+    }
 
-    PIXELBOT_ID_RANGE=(10,50) # min max
+
+    INITIAL_SCALE_FACTOR=0.85 # 
+
+    #INITIAL_DP_MM=90/25.4   # dots per mm of the video image
+    BALL_DIA_MM=115
+
 
     # assuming equal teams
     TEAM0_BASES=(104,105,106,107)
     TEAM1_BASES=(108,109,110,111)
-    ALL_BASES=TEAM0_BASES+TEAM1_BASES
-    NUM_TEAM_BASES=len(ALL_BASES)
-    NUM_PLAYERS_PER_TEAM=len(TEAM0_BASES) # should be same as TEAM1
-    TEAM1_COLOUR="red" # for pixel ring setting
-    TEAM2_COLOUR="blue"
+    NUM_TEAM_BASES=len(TEAM0_BASES)
+    ALL_BASES=2*NUM_TEAM_BASES
+    NUM_PLAYERS_PER_TEAM=len(TEAM0_BASES)
+    TEAM0_COLOUR="red"
+    TEAM1_COLOUR="blue"
