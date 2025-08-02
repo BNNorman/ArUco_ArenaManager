@@ -12,6 +12,9 @@ import MiscLib
 
 from config import settings
 
+
+MARKER_DICT=cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
+
 class arucoDetector:
 	"""arucoDetector
 	
@@ -27,18 +30,16 @@ class arucoDetector:
 
 		camera_config=self.cam.create_still_configuration(main={"size": (width,height),'format':"RGB888"})
 		self.cam.configure(camera_config)
+		
+		#self.cam.set_controls({"ExposureTime": 0, "AnalogueGain": 0}) # autogain & exposure
+		
 		self.cam.start()
 
-		# using 3 different dictionaries for home bases, pixelbots, calibration marker
-		self.aruco_dict_bases= cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_6X6_250)
-		self.aruco_dict_pixelbots = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_250)
-		self.aruco_dict_calibration = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_5X5_250)
+
 		
 		self.parameters = cv2.aruco.DetectorParameters()
 
-		self.pixelbots={}
-		self.homeBases={}
-
+		self.markers={}
 
 		time.sleep(2) # wait for camera to warm up
 		self.lock=threading.Lock()
@@ -47,6 +48,7 @@ class arucoDetector:
 		self.frame=self.cam.capture_array()
 		self.gray=self.frame.copy()
 		self.threshold=self.frame.copy()
+		self.edges=None
 		
 		self.ballPos=(0,0)		
 			
@@ -76,73 +78,57 @@ class arucoDetector:
 
 			# convert to grey scale
 			self.gray=cv2.cvtColor(self.frame,cv2.COLOR_BGR2GRAY)
-			# make black & white to enhance detection
+			
+			# make black & white to enhance aruco detection
+			
+			# these complain about image format
+			#_, self.threshold = cv2.threshold(self.frame, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+			#self.threshold = cv2.adaptiveThreshold(self.frame, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 11, 2)
+ 
 			_, self.threshold = cv2.threshold(self.gray, settings.BW_THRESHOLD, 255, cv2.THRESH_BINARY)
 
-
-	def _findPixelbots(self):
-		"""
-		pixelbots use 4x4 aruco markers
-		called after a new frame is grabbed
-		"""
-		
-		# Detect the markers
-		corners, ids, _ = cv2.aruco.detectMarkers(self.threshold,self.aruco_dict_pixelbots)
-
-		if ids is not None:
-			# adds an outline and red corner
-			# remove on release??
-			cv2.aruco.drawDetectedMarkers(self.frame, corners,ids)
-
-			# marry up the ids and corners
-			# use zip longest in case corners and ids are unequal
-			for botId,corners in itertools.zip_longest(ids, corners):
-				# oddly botId sometimes comes across as a numpy array
-				try:
-					res,cx,cy,angle=self._getMarkerInfo(corners)
-					if res:
-						self._drawCentreOnFrame(cx,cy)
-						name,addr=settings.pixelBots[botID]
-						print(f"found {name} id {botId} at cx {cx} cy {cy}")
-						self.pixelbots[id]=(cx,cy,angle)
-				except Exception as e:
-					print(f"Exception {e} in _findPixelbots") 
-					print(f"INFO id {botId} type {type(botId)} at cx {cx} cy {cy}")
+			# scann for any markers and draw them 
+			self.markers={}
+			corners, ids, _ = cv2.aruco.detectMarkers(self.threshold,MARKER_DICT)
+			if ids is not None:
+				cv2.aruco.drawDetectedMarkers(self.frame, corners,ids)
+				for aruco_id,corners in zip(ids, corners):
+					self.markers[aruco_id[0]]=corners
+					
 		
 	def _doCalibration(self):
 		"""
 		looks for a calibration marker then computes the
 		pixel to mm ratio.
-		
-		calibration is done using a 5x5 marker
+
 		"""
 
-		#There should only be one key
-		corners,ids,_=cv2.aruco.detectMarkers(self.threshold,self.aruco_dict_calibration)
-		if ids is not None:
-			cv2.aruco.drawDetectedMarkers(self.frame, corners,ids)
-			for id, corners in zip(ids, corners):
-				if id==settings.CALIBRATION_MARKER:
-					perimPX = cv2.arcLength(corners, True) 			 # pixels
-					self.scale_px_per_mm=perimPX/settings.CALIBRATION_PERIM_MM # pixels per mm
-					#print("Scale_px_per_mm",self.scale_px_per_mm)
+		try:
+			corners=self.markers[settings.CALIBRATION_MARKER]
 
+			perimPX = cv2.arcLength(corners, True) 			 # pixels
+			self.scale_px_per_mm=perimPX/settings.CALIBRATION_PERIM_MM # pixels per mm
+			#print("Scale_px_per_mm",self.scale_px_per_mm)
+		except:
+			# marker not present
+			pass
 		
-	def _findTheBall(self,radiusTolerance=0.05):
+	def _findTheBall(self,radiusTolerance=settings.BALL_TOLERANCE):
 
 		scaledBallRadiusPx=settings.BALL_DIA_MM*self.scale_px_per_mm/2	# scale may change if camera moves
 		minRadiusPx,maxRadiusPx=MiscLib.min_max(scaledBallRadiusPx,radiusTolerance)
 
 		#print(f"minRadiusPx {minRadiusPx} maxRadiusPx {maxRadiusPx} scaled {scaledBallRadiusPx} scale {self.scale_px_per_mm}")
 		
-		edged=cv2.Canny(self.gray,30,200)
-		cv2.imshow("EDGED",edged)
+		self.edges=cv2.Canny(self.gray,30,200)
 		
-		contours, hierarchy = cv2.findContours(edged,cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+		contours, hierarchy = cv2.findContours(self.edges,cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
 
 		for i,contour in enumerate(contours):
 			if i==0:
 				continue
+			
+			#cv2.drawContours(self.frame, [contour], -1, (0, 255, 0), 3) # -1 means filled
 			
 			# more approx vertices means more likely to be a circle
 			# hexagon has 6
@@ -151,9 +137,12 @@ class arucoDetector:
 			if len(approx)>10: # bigger than a nonogon
 				(x,y,w,h)=cv2.boundingRect(contour)
 				aspect=w/h
+
 				# the aspect ratio of a circle is 1.0 exactly viewed square on
 				if aspect>=0.9 and aspect<=1.1: 
 					(x,y),radius = cv2.minEnclosingCircle(contour)
+					
+					#print("FOUND RADIUS",radius)
 
 					# ball has a certain size - or range thereof
 					if radius>minRadiusPx and radius<maxRadiusPx:
@@ -191,27 +180,6 @@ class arucoDetector:
 		
 		return True,cx,cy,angle
 	
-	def _findHomeBases(self):
-		"""
-		pixelbots use 4x4 aruco markers
-		called after a new frame is grabbed
-		"""
-		
-		# Detect the markers
-		corners, ids, _ = cv2.aruco.detectMarkers(self.threshold,self.aruco_dict_bases)
-		
-		if ids is not None:
-			# adds an outline and red corner
-			# remove on release??
-			cv2.aruco.drawDetectedMarkers(self.frame, corners,ids)
-
-			# marry up the ids and corners
-			for id, corners in zip(ids, corners):
-				res,cx,cy,angle=self._getMarkerInfo(corners)
-				if res:
-					self._drawCentreOnFrame(cx,cy)
-					self.homeBases[id]=(cx,cy,angle)
-
 		
 	def update(self):
 		"""
@@ -219,8 +187,6 @@ class arucoDetector:
 		"""
 		self._grabFrame()
 		self._doCalibration()
-		self._findHomeBases()
-		self._findPixelbots()
 		self._findTheBall()
 		
 	def getHomeBases(self) ->dict:
@@ -229,7 +195,17 @@ class arucoDetector:
 		return: dict(baseId:(cx,cy))
 
 		"""
-		return self.homeBases()
+		bases={}
+		for home_id in settings.TEAM1_BASES+TEAM0_BASES:
+			try:
+				corners=self.markers[home_id]
+				res,cx,cy,angle=self._getMarkerInfo(corners)
+
+				bases[id]=(cx,cy,angle)
+			except:
+				pass
+		return bases
+		
 		
 	def getPixelbots(self) ->dict:
 		"""
@@ -238,7 +214,17 @@ class arucoDetector:
 		cy: position (mm) (int)
 		heading: degrees (int)
 		"""
-		return self.Pixelbots()
+		bots={}
+		for bot_id in settings.PIXELBOTS:
+			try:
+				corners=self.markers[bot_id]
+				res,cx,cy,angle=self._getMarkerInfo(corners)
+				bots[id]=(cx,cy,angle)
+			except:
+				pass
+				
+		return bots
+	
 		
 	def getBall(self)->tuple:
 		"""
@@ -250,8 +236,8 @@ class arucoDetector:
 		"""getScale()
 		
 		return pixels per mm scale
-		Assumes the calibration marker has been found.
-		Potentially there could be a race condition
+		Assumes the calibration marker has been found. Otherwise
+		the default value is returned.
 		"""
 		return self.scale_px_per_mm
 	
@@ -274,17 +260,21 @@ if __name__ == "__main__":
 	try:
 		
 		while True:
-			A._grabFrame()
-			A._doCalibration()	# adjust scale if camera moves and marker visible
-			A._findTheBall()
+			# all these are done by A.update() but I'm doing it here for
+			# debugging
+			A.update()
+
+
+			# to access the data
 			#homeBases=A.getHomeBases()
 			#pixelbots=A.getPixelbots()
 			#ball=A.getBall()
 			
-			#while not A.getScale():
-			#	print("Please lace a calibration marker in the field of view")
-						
+			print("MAX GRAY",np.max(A.gray),"MIN GRAY",np.min(A.gray))	
+					
 			#cv2.imshow("THRESHOLD",A.threshold)
+			#cv2.imshow("GRAY",A.gray)
+			#cv2.imshow("EDGES",A.edges)
 			cv2.imshow("FRAME",A.frame)
 			cv2.waitKey(1)
 		
