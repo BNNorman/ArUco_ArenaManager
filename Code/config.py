@@ -1,12 +1,6 @@
 class settings():
     STREAMING=False # set to True to enable Flask streaming
 
-    #MQTT_BROKER = 'localhost' # home PiNAS device
-    MQTT_BROKER='ns349814.ip-178-32-221.eu'
-    #MQTT_USER =   None    # might be brian
-    MQTT_USER = "cleverlittleboxes"
-    #MQTT_PASS = None        # 
-    MQTT_PASS="Boxing-Clever-Marmoset!"
 
     MQTT_CONNECT_TIMEOUT=10
     MQTT_KEEP_ALIVE=60

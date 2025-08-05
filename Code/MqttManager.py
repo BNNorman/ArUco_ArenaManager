@@ -9,8 +9,8 @@ mqttc.setCallback(which,target_function)
 
 mqttc.publish(topic,payload)
 
-mosquitto_sub -h 192.168.1.105 -t "pixelbot"
-mosquitto_pub -h 192.168.1.105 -t "pixelbot" -m "hey"
+mosquitto_sub -h broker -t "pixelbot"
+mosquitto_pub -h broker -t "pixelbot" -m "hey"
 
 logging will be setup by the Arena/Game manager
 
@@ -22,11 +22,14 @@ import time
 import logging
 
 from config import settings
+from mySecrets import MQTT_BROKER,MQTT_USER,MQTT_PASS
+
+logger=logging.getLogger(__name__)
 
 class MQTT():
 
 
-    def __init__(self,broker=settings.MQTT_BROKER,user=settings.MQTT_USER,password=settings.MQTT_PASS, defaultTopic=settings.MQTT_DEFAULT_TOPIC):
+    def __init__(self,broker=MQTT_BROKER,user=MQTT_USER,password=MQTT_PASS, defaultTopic=settings.MQTT_COMMAND_TOPIC):
 
         self.mqttc=paho.Client()
         self.topicCallbacks={}      # [topic]=callback
@@ -52,8 +55,6 @@ class MQTT():
 
         if rc==0:
             self.brokerConnected=True
-            logging.info(f"on_connect(): callback ok, subscribing to Topic: {self.defaultTopic}")
-            self.mqttc.subscribe(self.defaultTopic, 0)
         else:
             self.brokerConnected=False
             logging.info(f"on_connect(): callback error rc={rc}")
@@ -70,16 +71,16 @@ class MQTT():
             try:
                 self.connectToBroker()
             except Exception as e:
-                logging.error(f"subscribe: broker not connected {e}")
+                logger.error(f"subscribe: broker not connected {e}")
                 return    
         
         if not callable(callback):
-            logging.error(f"subscribe: callback is not callable.")
+            logger.error(f"subscribe: callback is not callable.")
             return
             
         self.topicCallbacks[topic]=callback
         
-        logging.info(f"Subscribe: topic {topic} added.")
+        logger.info(f"Subscribe: topic {topic} added.")
             
         self.mqttc.subscribe(topic, 0)
         return True
@@ -87,7 +88,7 @@ class MQTT():
     def unsubscribe(self,topic):
         try:
             del self.topicCallbacks[topic]
-            logging.info(f"Unsubscribe: callback for topic {topic} removed")
+            logger.info(f"Unsubscribe: callback for topic {topic} removed")
         except:
             pass
         
@@ -100,9 +101,13 @@ class MQTT():
         :return:
         '''
 
-        logging.info(f"publishPayload: publish to topic {topic} payload {payload}")
-        self.mqttc.publish(topic,payload)
-
+        logger.info(f"publishPayload: publish to topic {topic} payload {payload}")
+        try:
+            (res,qos)=self.mqttc.publish(topic,payload) # default Qos=1
+            logger.info(f"publish returned res {res} qos {qos}")
+        except Exception as e:
+            logger.warn(f"publish failed exception: {e}")
+            
     ################################
     #
     # on_message() MQTT broker callback
@@ -122,7 +127,7 @@ class MQTT():
             func=self.topicCallbacks[topic]
             func(topic,payload)
         except:
-            logging.warning(f"No callback registered for topic {topic}")
+            logger.warning(f"No callback registered for topic {topic}")
         
 
 
@@ -133,10 +138,10 @@ class MQTT():
     # information only
     #
     def on_subscribe(self,mqttc,obj,mid,granted_qos):
-        global logging
-        logging.info(f"on_subscribe(): Subscribed with mid {mid} granted_qos {granted_qos}")
+        logger.info(f"on_subscribe(): Subscribed with mid {mid} granted_qos {granted_qos}")
 
-
+    def on_publish(self,mqttc,userdata, mid): #, reason_code, properties):
+        logger.info("on_publish callback")
     ################################
     #
     # connectToBroker
@@ -146,19 +151,20 @@ class MQTT():
 
         self.brokerConnected=False
 
-        logging.info("connectToBroker(): Trying to connect to the MQTT broker")
+        logger.info("connectToBroker(): Trying to connect to the MQTT broker")
 
         # on_message calls may be redirected
         self.mqttc.on_connect = self.on_connect
         self.mqttc.on_subscribe = self.on_subscribe
         self.mqttc.on_message = self.on_message
+        self.mqttc.on_publish = self.on_publish
 
         # use authentication?
         if self.user is not None:
-            logging.info("connectToBroker(): using MQTT authentication")
+            logger.info("connectToBroker(): using MQTT authentication")
             self.mqttc.username_pw_set(username=self.user, password=self.password)
         else:
-            logging.info("main(): not using MQTT autentication")
+            logger.info("main(): not using MQTT autentication")
 
         # terminate if the connection takes too long
         # on_connect sets a global flag brokerConnected
@@ -169,29 +175,35 @@ class MQTT():
         while not self.brokerConnected:
             # "connected" callback may take some time
             if (time.time() - startConnect) > settings.MQTT_CONNECT_TIMEOUT:
-                logging.error(f"connectToBroker(): broker on_connect time out {settings.MQTT_CONNECT_TIMEOUT}")
+                logger.error(f"connectToBroker(): broker on_connect time out {settings.MQTT_CONNECT_TIMEOUT}")
                 return False
 
-        logging.info(f"connectToBroker(): Connected to MQTT broker after {time.time()-startConnect} s")
+        logger.info(f"connectToBroker(): Connected to MQTT broker after {time.time()-startConnect} s")
         return True
 
 if __name__ == "__main__":
-    def hello_callback(topic,payload):
-        print(f"hello_callback: topic {topic} payload {payload}")
     
-    def position_callback(topic,payload):
-        print(f"position_callback: topic {topic} payload {payload}")    
+    # Note this works
     
-    myMqtt=MQTT()
-    
-    myMqtt.subscribe("pixelbot/hello",hello_callback)
-    myMqtt.subscribe("pixelbot/position",position_callback)
-    
-    myMqtt.publishPayload("pixelbot/hello","Hello there")
-    myMqtt.publishPayload("pixelbot/position","where am i?")
+    logging.basicConfig(filename='MqttManager.log', filemode="w",level=logging.INFO)
+    logger.info('Started')
 
     
-    print("Waiting for callbacks")
+    botId=20 # goldilocks
+    botName,addr=settings.allKnownBots[botId]
+    
+    #mosquitto_pub -h mqtt.connectedhumber.org  -t "lb/command/CLB-E66164084320A62E" -P 'i8ew02261TCYdbVSnG1e' -u littleboxes -m
+    
+    topic="lb/command/CLB-E66164084320A62E"
+    
+    def subscribe_callback(topic,payload):
+        print(f"subscribe command_callback: topic {topic} payload {payload}")
+    
+    myMqtt=MQTT() # automatically uses user/pass/host from mySecrets.py
+    myMqtt.subscribe(topic,subscribe_callback)
+    myMqtt.publishPayload(topic,"***MR90")
+    myMqtt.publishPayload(topic,"***MF100")
+
     time.sleep(10)
     print("finished")
     

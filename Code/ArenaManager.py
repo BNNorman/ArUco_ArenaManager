@@ -13,7 +13,6 @@ The game logic is programmed into the pixelbots using the Pythonish interpreter 
 """
 
 from config import settings
-
 from VideoDetectorLib import arucoDetector # my handler
 
 import sys
@@ -21,56 +20,37 @@ import cv2
 import MiscLib
 import time
 import json
+import itertools
+import logging
+import pixelbotClass
+
+logger = logging.getLogger(__name__)
+
+# start a fresh log for each run
+logging.basicConfig(filename='ArenaManager.log', filemode="w",level=logging.INFO)
+logger.info('Started')
 
 
 detector=arucoDetector()
 
+# just for feedback and to get the camera running
+for c in range(2):
+	detector.update()
+	cv2.imshow("ARENA",detector.getFrame())
+	cv2.waitKey(1)
+
 if settings.STREAMING:
 	from FlaskVideo import app as flaskApp
+else:
+	logger.info("Not using Flask")
+
 
 pixelbots={} #  id-> pixelbot class instances
 homeBases={}
-ball=None : tuple of cx,cy positions
-
-def off_get_pixelbots()->None:
-	"""build pixelbot teams
-	
-	Alternately adds each pixelbot found to either team0 or team1
-	"""
-	global pixelbots # dict of bots
-	
-	print("Finding pixel")
-	
-	_,markers=aruco_detector.grabFrame() # ignore video frame
-	
-	team=1
-	playerIdx=0 # index into TEAMx_BASES
-	
-	for botId in markers.keys():
-		if botId not in settings.PIXELBOT_ID_RANGE:
-			continue
-		else:
-			homeBaseId=settings.TEAM1_BASES[playerIdx] if team==1 else settings.TEAM0_BASES[playerIdx]
-			cx,cy,angle=markers[botId]
-			homeX,homeY,_=markers[homeBaseId]
-			
-			# add bot to dict colour is set by the pixelbot class
-			# based on team number
-			pixelbots[botId]=pixelbot(botId,cx,cy,angle,team,homeX,homeY)
-
-			teamColour=settings.TEAM1_COLOUR if team==1 else settings.TEAM2_COLOUR
-			# light up the pixels to identify the teams
-			pixelbotCtrl.setPixels(botId,teamColour)
-
-			# toggle the team
-			team=0 if team==1 else 1
-			
-			# bump the team player index
-			if team==1 and playerIdx==0:
-				playerIdx+=1
+ballPos=(None,None) # tuple of cx,cy positions
 
 
-def assignPixelbotsToTeams()->None:
+def assignPixelbotsToBases()->None:
 	"""build pixelbot teams
 	
 	called after team bases and pixelbos have been found
@@ -80,39 +60,30 @@ def assignPixelbotsToTeams()->None:
 
 	team=1
 
-	for botId,baseId in zip(pixelbots.keys(),homeBases.keys()):
+	for botId,baseId in itertools.zip_longest(pixelbots.keys(),homeBases.keys()):
+		if botId is None:
+			logger.info("Not all bases have bots")
+			return
+			
+		if baseId is None:
+			logger.info("Not enough bases. Too many bots")
+			return 
 
-		homeX,homeY,_=teamBases[baseId]
+		homeX,homeY,_=homeBases[baseId]
 		
 		# add bot to dict colour is set by the pixelbot class
 		# based on team number
-		pixelbots[botId]=setHomePos(homeX,homeY)
+		pixelbots[botId].setHomePos(homeX,homeY)
 
-		teamColour=settings.TEAM1_COLOUR if team==1 else settings.TEAM2_COLOUR
+		teamColour=settings.TEAM1_COLOUR if team==1 else settings.TEAM0_COLOUR
 		# light up the pixels to identify the teams
 		pixelbots[botId].setTeamColour(teamColour) # also lights them up
 
 		# toggle the team
 		team=0 if team==1 else 1
 				
-def checkPixelbotIsHome(botId, tolerance=10):
-	cx,cy,angle,team,homeX,homeY=pixelbots[botId].getProps()
-	
-	if MiscLib.isHome(cx,cy,homeX,homeY,tolerance):
-		# turn the bot to face its opponents
-		botAngle=pixelbots[botId].angle
-		# bot bases at y>(arena height) should face up
-		# otherwise down
-		if pixelbots[botId].homeY>(settings.VIDEO_HEIGHT/2):
-			# point North
-			pixelbots[botId].turn(-botAngle)
-		else:
-			# point south
-			pixelbots[botId.turn(botId,180-botAngle)
-		# stop and wait till all bots are homed
-		pixelbots[botId].stop()
 		
-def off_send_bots_home():
+def send_bots_home()->None:
 	"""
 	Tells each bot where it's home base is. The bots are expected to make their way
 	to their home bases.
@@ -120,39 +91,35 @@ def off_send_bots_home():
 	Monitors the position of each bot till it gets within the home base and when
 	at home tells the bot to face it's opponent.
 	"""
-	print("Sending bots home")
+	logger.info("Sending bots home")
+	
+	# each bot runs separately
+	for id in list(pixelbots.keys()):
+		pixelbots[id].sendHome() # non blocking
 
-	# check if all bots are homed
-	print("Waiting for all bots to home")
+	# wait till all known bots are homed
 	homed=0
-	while homed<(2*settings.NUM_TEAM_BASES):
-		homed=0 # restart counting
-		detector.update()
-		
-		bots=detector.getPixelbots() # a dict cx,cy,angle
-		for botId in bots:
-			botX,botY,_=bots[botId]
-			homeX,homeY=pixelbots[botId].getHomePos()
-
-			if MiscLib.isHome(botX,botY,homeX,homeY):
+	while homed<len(pixelbots.keys()):
+		homed=0
+		for id in list(pixelbots.keys()):
+			if pixelbots[id].isHome():
 				homed+=1
-				# turn the bot to face its opponent
-				curAngle=pixelbots[botId].getAngle()
-				# bot bases at y>(arena height) should face up
-				# otherwise down
-				if homeY>(settings.VIDEO_HEIGHT/2):
-					# point North
-					pixelbots[botId].turn(botId,-curAngle)
-				else:
-					# point south
-					pixelbots[botId].turn(botId,180-curAngle)
-				# stop and wait till all bots are homed
-				pixelbotCtrl.stop(botId)
-				
-	# the bots should now be on their home bases
-	# and facing the correct way and ready to start the game
+
+	# now turn to face opponents
+	
+	for id in list(pixelbots.keys()):
+		if pixelbots[id].homeX>(setting.VIDEO_WIDTH*.75):
+			# face left
+			pixelbots[id].turn(180-pixelbots[id].angle)
+		else:
+			pixelbots[id].turn(pixelbots[id].angle)
+			
+			
 	time.sleep(5)
-	for botId in pixelbots.keys():
+	
+	# let them run their builtin game program
+	
+	for botId in list(pixelbots.keys()):
 		pixelbots[botId].run()
 		
 def updatePixelbots()->None:
@@ -162,73 +129,116 @@ def updatePixelbots()->None:
 	the info to the actual pixelbots
 	"""
 	markers=detector.getPixelbots() # get current pos info
-	for botId in pixelbots.keys():
-		cx,cy,angle=markers[botId]
-		pixelbots[botId].setPos(cx,cy)
-		pixelbots[botId].setAngle(angle)
-		pixelbots[botId].tellPixelbot()
+	for botId in list(pixelbots.keys()):
+		try:
+			cx,cy,angle=markers[botId]
+			pixelbots[botId].setPos(cx,cy)
+			pixelbots[botId].setAngle(angle)
+			pixelbots[botId].tellPixelbot() # upload data to the bot
+		except:
+			pass
+###########################################################
+#
+# scan for home bases, pixelbots and scale marker
+# assign bots to bases then send them home
+# when homed, turn to face the opponents and
+# start the builtin game scripts
+#
 
-# the game may commence according to the pythonish
-# programs they have.
-
-print("Scanning for home bases") 
-while True:
-	# grab a new video frame and analyse it
+def getHomeBases()->int:
+	global homeBases
+	logger.info("Scanning for home bases") 
 	detector.update()
-	homeBases=detector.getHomeBases()
-	if len(homeBases.keys())==settings.NUM_TEAM_BASES:
-		print("Found all home bases")
-		break
-		
-print("Scanning for pixelbots")
-while True:
-	# grab a new video frame and analyse it
-	detector.update()
-	pixelbots=detector.getPixelbots() # a dict
-	if len(pixelbots.keys()==settings.NUM_TEAM_BASES: # one bot per home base
-		print("Found all pixel bots")
-		break
-
-assignPixelbotsToTeams()
-
-
-print("Spot the ball")
-while True:
-	# grab a new video frame and analyse it
-	detector.update()
-	ballX,ballY=detector.getBall()
-	if ballX is not None:
-		break
-
-print("Allocating pixelbots to teams and sending them home")
-
-for botId,baseId in zip(pixelbots.keys(),homeBases.keys):
-	baseX,baseY=homeBases[baseId]
+	homeBases=detector.getHomeBases() # dict [markerId]=(cx,cy)
+	return len(homeBases.keys())
 	
+		
+def getPixelbots(timeout=60) ->None:
+	global pixelbots
+	logger.info("Scanning for pixelbots")
+	detector.update()
+	start=time.time()
+	numBots=0
+	
+	while numBots==0:
+		if time.time()-start>timeout:
+			msg="Timeout waiting for pixelbots"
+			logger.info(msg)
+			raise(msg)
+			
+		foundBots=detector.getPixelbots() # a dict id=>(cx,cy,angle)
+		
+		numBots=len(foundBots.keys())
+	
+		if numBots>0:
+			for botId in list(foundBots.keys()):
+				#the team,homeX and homeY will be set by assignPixelbotsToTeams()
+				cx,cy,angle=foundBots[botId]
+				logger.info(f"Creating bot {botId} {cx} {cy} {angle}")
+				pixelbots[botId]=pixelbotClass.pixelbot(botId,cx,cy,angle)
+		else:
+			detector.update()
 
-print("Please removed base and calibration markers")
+def spotTheBall(timeout=60)->bool:
+	global ballPos
+	logger.info("Scanning for the ball")
+	start=time.time()
+	scanning=True
+	while scanning:
+		if time.time()-start>timeout:
+			msg="Timeout scanning for ball"
+			logger.info(msg)
+			raise(msg)
+		detector.update()
+		ballX,ballY=detector.getBall()
+		if ballX is not None:
+			ballPos=(ballX,ballY)
+			scanning=False
+
+#########################################
+#
+# logic
+#
+# find home bases - if none abort
+# find pixelbots - raises timeout
+# assign bots to bases (randomly)
+# send bots home
+# wait till bots are home
+# spot the ball - with timeout
+# wait?
+# tell bots to run
+#
+
+########################################
+
+if getHomeBases()==0:
+	logger.info("No home bases found")
+	raise "no home bases - cannot continue"
+
+getPixelbots(120) # timeout default is 60s
+
+assignPixelbotsToBases()
+
+spotTheBall(120) # timeout default is 60s
 
 running=True
 
-print("Game loop starting")
+logger.info("Game loop starting press Q to quit")
 
 while running:
 	detector.update()
 	
 	# broadcast current positions
 	updatePixelbots() 		
-	updateBallPosition()
+	ballPos=detector.getBall()
 	
 	# check states
 	
 	if not settings.STREAMING:
-		cv2.imshow("Arena",aruco_detector.getFrame())
+		cv2.imshow("ARENA",detector.getFrame())
 
 		if cv2.waitKey(1) & 0xFF==ord("q"):
 			running=False
-
 	
-	
-		
 		
 cv2.destroyAllWindows()
