@@ -1,14 +1,17 @@
 
 # interface to HULLOS-Z
 
+import paho.mqtt.client as paho
+
 from config import settings
 import math
 import MiscLib
 import logging
+import time
 
 DEBUG=False
 
-from MqttManager import MQTT # used to emit coordinates via MQTT
+from mqttSecrets import MQTT_BROKER,MQTT_USER,MQTT_PASS, MQTT_CONNECT_TIMEOUT,MQTT_KEEP_ALIVE,MQTT_COMMAND_TOPIC
 
 logger=logging.getLogger(__name__)
 
@@ -16,7 +19,7 @@ class pixelbot:
 	
 	"""things shared by all instances"""
 	
-	mqtt=MQTT()
+
 	
 	def __init__(self,botId,cx,cy,angle,team=0,homeX=0,homeY=0):
 		"""properties and methods for each detected pixelbot"""
@@ -29,7 +32,84 @@ class pixelbot:
 		self.homeX=homeX
 		self.homeY=homeY
 		self.teamColour="red" if team==0 else "blue"
+		self.mqttc=paho.Client()
+		self.mqttc.connected_flag=False
+	
+		self._connectToBroker()
+		
+	def __del__(self):
+		if self.mqttc.connected_flag:
+			self.mqttc.loop_stop()
+			
+	def _on_connect(self,mqttc, obj, flags, rc):
+		if rc==0:
+			self.mqttc.connected_flag=True
+			logger.info(f"on_connect() callback: ok")
+		else:
+			logger.info(f"on_connect() callback: error rc={rc}")
+			
+	
+	def _publishPayload(self,topic,payload):
+		'''
+		meant to be called by user
+		:param topic:
+		:param payload:
+		:return:
+		'''
 
+		logger.info(f"publishPayload: topic {topic} payload {payload}")
+		
+		self.mqttc.publish(topic,payload)
+		self.mqttc.loop(timeout=1.0, max_packets=1)
+				
+		try:
+			if not self.mqttc.connected_flag:
+				self._connectToBroker()
+				
+			(res,qos)=self.mqttc.publish(topic,payload,qos=0) # default Qos=1
+			logger.info(f"publish returned res {res} qos {qos}")
+			
+		except Exception as e:
+			logger.warn(f"publish failed exception: {e}")       
+
+	def _connectToBroker(self):
+		"""
+		waits till on_connect callback confirms connection
+		"""
+
+		if self.mqttc.connected_flag:
+			# don't try again
+			logger.info("attempt to connect to mqtt but already connected")
+			return
+
+		logger.info("connectToBroker(): Trying to connect to the MQTT broker")
+
+		# on_message calls may be redirected
+		self.mqttc.on_connect = self._on_connect
+
+
+		# use authentication?
+		if MQTT_USER is not None:
+			logger.info("connectToBroker(): using MQTT authentication")
+			self.mqttc.username_pw_set(username=MQTT_USER, password=MQTT_PASS)
+		else:
+			logger.info("main(): not using MQTT autentication")
+
+		# terminate if the connection takes too long
+		# on_connect sets a global flag brokerConnected
+		startConnect = time.time()
+		self.mqttc.loop_start()	# runs in the background, reconnects if needed
+		self.mqttc.connect(MQTT_BROKER,keepalive=MQTT_KEEP_ALIVE)
+		self.mqttc.loop_start()
+		while not self.mqttc.connected_flag:
+			# "connected" callback may take some time
+			if (time.time() - startConnect) > MQTT_CONNECT_TIMEOUT:
+				logger.error(f"connectToBroker(): broker on_connect time out {MQTT_CONNECT_TIMEOUT}s")
+				return False
+
+		logger.info(f"connectToBroker(): Connected to MQTT broker after {time.time()-startConnect} s")
+		self.mqttc.publish("lb/command/CLB-E66164084320A62E","connected")
+		return True
 
 	def _getClbAddress(self):
 		try:
@@ -45,18 +125,21 @@ class pixelbot:
 		
 		if DEBUG is True just print what would be sent
 		"""
+		logger.info(f"sendToRobot({cmd})")
+		
 		addr=self._getClbAddress()
 		
 		if addr is not None:
-			topic=settings.MQTT_COMMAND_TOPIC+f"{addr}"
-			topic=f"'{topic}'"
+			topic=f"'{MQTT_COMMAND_TOPIC}{addr}'"
 			if DEBUG:
 				logger.debug(f"Topic {topic} cmd {cmd}")
 			else:
 				logger.info(f"Publish to topic {topic} cmd {cmd}")
-				self.mqtt.publishPayload(topic,f"'***{cmd}'")
-
-	def _sendCmdList(cmdList):
+				self._publishPayload(topic,f"'***{cmd}'")
+		else:
+			logger.warn(f"bot address not found")
+			
+	def _sendCmdList(self,cmdList):
 		for cmd in cmdList:
 			self._sendToRobot(cmd)
 	
@@ -132,15 +215,13 @@ class pixelbot:
 		dist=MiscLib.distance(self.homeX,self.homeY,self.x,self.y)
 		cmdList.append(f"MF{dist}") # as fast as possible
 		
-		self.sendCmdList(cmdList)
-		
+		self.sendCmdList(cmdList)	
 		
 	def isHome(self,tolerance=10):
 		# now wait for it to get there
 		if MiscLib.isHome(self.x,self.y,self.homeX,self.homeY):
 			return True
-		return False
-		
+		return False	
 		
 	def turn(self,angle:int,inTime:int=None):
 		""" turn()
@@ -176,6 +257,7 @@ class pixelbot:
 		colourName:str	like "red","blue" etc or R B etc
 
 		"""
+		logger.info(f"Set pixels {colourName}")
 		self._sendToRobot(f"PN{colourName}")
 
 if __name__ == "__main__":
@@ -184,9 +266,14 @@ if __name__ == "__main__":
 	
 	B=pixelbot(20,10,10,34,0,0,0)
 	
-	print(B._getClbAddress())
+	if not B.mqttc.connected_flag:
+		print("Not connected to MQTT")
+	
+	print("Addr:",B._getClbAddress())
 	
 	B.setPixels("R")
+	
+	B._sendToRobot("PNG")
 	
 	print("Done")
 	
