@@ -1,4 +1,4 @@
-# UNTESTED - waiting for info from Rob Miles
+# Testing In progress - do not use just yet
 
 # ArUco_ArenaManager
 Python code to manage a pixelbot game arena using ArUco markers
@@ -10,9 +10,9 @@ The arena has a number of robot bases on opposite sides of the arena/field each 
 
 Each pixelbot will also have a unique ArUco marker.
 
-At the start of the AreanaManager.py program the bases and robots are identified and each bot is assigned to a 'team' and base. The pixelbots are then sent MQTT messages to tell them where the home base and they are expected to find there way there using a 'pythonish' program loaded into the bots.
+There is a seperate marker to aid for compensation for camera to arena distance, which is used for detecting a ball.
 
-Provision is made for a ball (also identified by an ArUco marker)
+At the start of the AreanaManager.py program the bases and robots are identified and each bot is randomly assigned to a 'team' and base. The pixelbots are then sent MQTT messages to tell them where the home base is and they are expected to find there way there using a 'pythonish' program loaded into the bots.
 
 The ArenaManager.py will transmit current co-ordinates of the pixelbots and the ball. It is upto the pythonish program, in each pixelbot, to get the ball into the opponents 'net' - basically the opponent base line.
 
