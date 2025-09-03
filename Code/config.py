@@ -1,26 +1,24 @@
+
 class settings():
     STREAMING=False # set to True to enable Flask streaming
 
 
-    MQTT_CONNECT_TIMEOUT=10
-    MQTT_KEEP_ALIVE=60
-
-    MQTT_COMMAND_TOPIC="lb/command/" # everything
-    MQTT_LOCATION_TOPIC="pixelbot/loc"
 
 
-    VIDEO_RES=[(640,480),(1920,1080),(1280,720)]
+    VIDEO_RES=[(640,480),(1920,1080),(1280,720),(1280,960)]
 
-    VIDEO_WIDTH,VIDEO_HEIGHT=VIDEO_RES[2]
+    VIDEO_WIDTH,VIDEO_HEIGHT=VIDEO_RES[1]
 
     CALIBRATION_MARKER=49	    # marker to use for calibration
-    CALIBRATION_SIZE_MM=52		# mm side size on paper
-    CALIBRATION_PERIM_MM=4*52
+    CALIBRATION_SIZE_MM=54		# mm side size on paper
 
-    BW_THRESHOLD=190
+    HOMEBASE_SIDELEN_MM=54      # used to check if bot has got to the base
+
+
+    BW_THRESHOLD=190 # not using thresholding now
 
     baseId=0
-    pixelBots={
+    allKnownBots={
     baseId:("Agent Orange","CLB-da3371"), 
     baseId+1: ("Alloys Boys","CLB-d3343a"),
     baseId+2:("Blue Steel","CLB-1cea51"),
@@ -31,25 +29,30 @@ class settings():
     baseId+7:("Old Red","CLB-c23d87"),
     baseId+8:("Sunshine","CLB-c09546"),
     baseId+9:("Violet Redwheels","CLB-1df4e3"),
-	baseId+20:("Deep Purple","CLB-E661640843492631"),
-	baseId+21:("Goldilocks","CLB-E66164084320A62E"),
+    baseId+20:("Goldilocks","CLB-E66164084320A62E"),
+	baseId+21:("Deep Purple","CLB-E661640843492631"),
 	baseId+22:("Nobody","CLB-E66164084367842E")
     }
 
+    BOUNDARY_MARGIN=100 # used to define arena rect
 
     INITIAL_SCALE_FACTOR=1.2 # empirically determined - works best with the ball 
 
-    #INITIAL_DP_MM=90/25.4   # dots per mm of the video image
     BALL_DIA_MM=120
-    BALL_TOLERANCE=0.2
+    BALL_TOLERANCE=0.04 # %
 
-    # 
-    PIXELBOTS=[0,1,2,3,4,5,6,7,8,9,20,21]
-    # assuming equal teams
+    # setup for pixelbot teams
+    # assuming equal sized teams and bases
+   
+    TEAM0_BOTS=[0,1,2,20]
+    TEAM1_BOTS=[7,8,9,21]
+    
+    NUM_BOTS=1 # set this to len(TEAM0_BOTS+TEAM1_BOTS) when all bots are present
+    
     TEAM0_BASES=[40,41,42,43]
     TEAM1_BASES=[44,45,46,47]
-    NUM_TEAM_BASES=len(TEAM0_BASES)
-    ALL_BASES=2*NUM_TEAM_BASES
-    NUM_PLAYERS_PER_TEAM=len(TEAM0_BASES)
-    TEAM0_COLOUR="red"
-    TEAM1_COLOUR="blue"
+    PAIRINGS={0:40,1:41,2:42,20:43,7:44,8:45,9:46,21:47}
+    
+    
+    TEAM0_COLOUR="R"
+    TEAM1_COLOUR="B"

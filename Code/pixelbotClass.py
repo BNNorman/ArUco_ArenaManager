@@ -6,154 +6,167 @@ import paho.mqtt.client as paho
 from config import settings
 import math
 import MiscLib
-import logging
 import time
 
 DEBUG=False
+DEFAULT_PROGRAM_LIST=["active.txt"]
 
-from mqttSecrets import MQTT_BROKER,MQTT_USER,MQTT_PASS, MQTT_CONNECT_TIMEOUT,MQTT_KEEP_ALIVE,MQTT_COMMAND_TOPIC
 
-logger=logging.getLogger(__name__)
+from mqttSecrets import MQTT_BROKER,MQTT_USER,MQTT_PASS, MQTT_CONNECT_TIMEOUT,MQTT_KEEP_ALIVE,MQTT_COMMAND_TOPIC, MQTT_DATA_TOPIC
+
+
 
 class pixelbot:
 	
 	"""things shared by all instances"""
-	
 
 	
-	def __init__(self,botId,cx,cy,angle,team=0,homeX=0,homeY=0):
+	def __init__(self,botId,cx:int,cy:int,heading:int,homeX:int=0,homeY:int=0):
 		"""properties and methods for each detected pixelbot"""
-		logger.info(f"Created pixlbot {botId} at {cx},{cy} angle {angle}")
+
 		self.myId=botId
+		try:
+			self.myName,self.addr=settings.allKnownBots[self.myId]
+		except:
+			raise(f"botId {self.myId} not found in settings.allKnownBots")
+		
 		self.cx=cx
 		self.cy=cy
-		self.angle=angle
-		self.team=team
+		self.heading=heading
 		self.homeX=homeX
 		self.homeY=homeY
-		self.teamColour="red" if team==0 else "blue"
+		
+		self.teamColour="red" if homeX<(settings.VIDEO_WIDTH/2) else "blue"
 		self.mqttc=paho.Client()
 		self.mqttc.connected_flag=False
-	
-		self._connectToBroker()
+		self.publishCallbackPending=False
+		self.connectedToBroker=False
+		self._connectToBroker("__init__") # debugging where call came from
+
+		# set when variables are sent, cleared by bot data 
+		# topic on_message callback
+		self.busy=False
 		
 	def __del__(self):
+		pass
 		if self.mqttc.connected_flag:
 			self.mqttc.loop_stop()
 			
-	def _on_connect(self,mqttc, obj, flags, rc):
+	def _on_connect(self,client, obj, flags, rc):
 		if rc==0:
-			self.mqttc.connected_flag=True
-			logger.info(f"on_connect() callback: ok")
-		else:
-			logger.info(f"on_connect() callback: error rc={rc}")
-			
+			client.connected_flag=True
+			print(f"subscribing to topic {MQTT_DATA_TOPIC+self.addr}",flush=True)
+			client.subscribe(MQTT_DATA_TOPIC+self.addr)
+
 	
+	def _on_message(self,client, userdata, message):
+		# when the bot has finished doing its thing
+		# we are subscribed to the data topic for this
+		#print(f"Got message {message.payload} from arena",flush=True)
+		if message.payload==b'1':
+			#print("Got job done")
+			self.busy=False
+			
+		#print(f"on message for botId {self.myId} topic {message.topic} payload {message.payload}",flush=True)
+		
+		
+	def _on_disconnect(self,client, userdata, rc):
+		client.connected_flag=False
+	
+	def _on_publish(self,client, userdata, mid):
+		self.publishPending=False
+
+		
 	def _publishPayload(self,topic,payload):
 		'''
-		meant to be called by user
+		use by sendToRobot and sendHome
+		
 		:param topic:
 		:param payload:
 		:return:
 		'''
-
-		logger.info(f"publishPayload: topic {topic} payload {payload}")
 		
-		self.mqttc.publish(topic,payload)
-		self.mqttc.loop(timeout=1.0, max_packets=1)
+		if topic is None or payload is None:
+			return
+	
+		self.publishPending=True
 				
-		try:
-			if not self.mqttc.connected_flag:
-				self._connectToBroker()
-				
-			(res,qos)=self.mqttc.publish(topic,payload,qos=0) # default Qos=1
-			logger.info(f"publish returned res {res} qos {qos}")
-			
-		except Exception as e:
-			logger.warn(f"publish failed exception: {e}")       
 
-	def _connectToBroker(self):
+		if not self.mqttc.connected_flag:
+			self._connectToBroker()
+		self.mqttc.publish(topic,payload,qos=2)
+			
+   
+
+	def _connectToBroker(self,info):
 		"""
 		waits till on_connect callback confirms connection
 		"""
+		
+		if self.connectedToBroker:
+			return
 
 		if self.mqttc.connected_flag:
 			# don't try again
-			logger.info("attempt to connect to mqtt but already connected")
 			return
 
-		logger.info("connectToBroker(): Trying to connect to the MQTT broker")
-
 		# on_message calls may be redirected
+		
+		self.mqttc.on_message = self._on_message
 		self.mqttc.on_connect = self._on_connect
-
+		self.mqttc.on_publish = self._on_publish
+		self.mqttc.on_disconnect = self._on_disconnect
 
 		# use authentication?
 		if MQTT_USER is not None:
-			logger.info("connectToBroker(): using MQTT authentication")
 			self.mqttc.username_pw_set(username=MQTT_USER, password=MQTT_PASS)
-		else:
-			logger.info("main(): not using MQTT autentication")
+
 
 		# terminate if the connection takes too long
 		# on_connect sets a global flag brokerConnected
 		startConnect = time.time()
-		self.mqttc.loop_start()	# runs in the background, reconnects if needed
-		self.mqttc.connect(MQTT_BROKER,keepalive=MQTT_KEEP_ALIVE)
 		self.mqttc.loop_start()
+		self.mqttc.connect(MQTT_BROKER,keepalive=MQTT_KEEP_ALIVE)
 		while not self.mqttc.connected_flag:
 			# "connected" callback may take some time
 			if (time.time() - startConnect) > MQTT_CONNECT_TIMEOUT:
-				logger.error(f"connectToBroker(): broker on_connect time out {MQTT_CONNECT_TIMEOUT}s")
+				print(f"MQTT connect timeout",flush=True)
 				return False
 
-		logger.info(f"connectToBroker(): Connected to MQTT broker after {time.time()-startConnect} s")
-		self.mqttc.publish("lb/command/CLB-E66164084320A62E","connected")
+        # pending uploader fix
+		#self.uploadPrograms(DEFAULT_PROGRAM_LIST)
 		return True
 
-	def _getClbAddress(self):
-		try:
-			name,addr=settings.allKnownBots[self.myId]
-			return addr
-		except:
-			logger.error(f"Error finding botId in allKnownBots {self.myId} type {type(self.myId)}")
-			return None
+	def _sendHullOScmd(self,cmd:str)->None:
+		self._sendToRobot("***"+cmd)
+
+	def _sendHullOScmdList(self,cmdList: list)->None:
+		for cmd in cmdList:
+			self._sendHullOScmd(cmd)
+	
+	def _sendPythonishCmd(self,cmd):
+		self._sendToRobot("**"+cmd)
+		
+	def _sendPythonishcmdList(self,cmdList: list)->None:
+		for cmd in cmdList:
+			self._sendPythonishCmd(cmd)		
 		
 	def _sendToRobot(self,cmd:str)->None:
 		""" sendToRobot
 	
-		
 		if DEBUG is True just print what would be sent
 		"""
-		logger.info(f"sendToRobot({cmd})")
-		
-		addr=self._getClbAddress()
-		
-		if addr is not None:
-			topic=f"'{MQTT_COMMAND_TOPIC}{addr}'"
-			if DEBUG:
-				logger.debug(f"Topic {topic} cmd {cmd}")
-			else:
-				logger.info(f"Publish to topic {topic} cmd {cmd}")
-				self._publishPayload(topic,f"'***{cmd}'")
+	
+		topic=f"{MQTT_COMMAND_TOPIC}{self.addr}"
+		if DEBUG:
+			print(f"_sendToRobot: Topic {topic} cmd {cmd}",flush=True)
 		else:
-			logger.warn(f"bot address not found")
+			self._publishPayload(topic,f"{cmd}")
 			
 	def _sendCmdList(self,cmdList):
 		for cmd in cmdList:
 			self._sendToRobot(cmd)
 	
-	def tellPixelbot(self):
-		"""
-		sends all positional info to the pixelbot
-		"""
-		cmdlist=[f"VSbotX={self.cx}", f"VSbotY={self.cy}",f"VSbotAngle={self.angle}"]
-		self.sendCmdList(cmdList)
-		
-	def sendBallPos(self,ballX,ballY):
-		cmdList=[f"VSballX={ballX}",f"VSballY={ballY}"]
-
-
 	def setTeamColour(self,colourName:str)->None:
 		self.teamColour=colourName
 		# light up the bot
@@ -172,109 +185,188 @@ class pixelbot:
 	def getHomePos(self):
 		return (self.homeX,self.homeY)
 		
-	def setAngle(self,angle):
-		self.angle=angle
+	def setHeading(self,heading)->None:
+		self.heading=heading
 		
-	def getAngle(self):
-		return self.angle
+	def getHeading(self):
+		return self.heading
 
 	def props(self) -> tuple:
 		"""props()
 		used to return all the required properties
 		"""
-		return (self.cx,self.cy,self.angle,self.team,self.homeX,self.homeY)
+		return (self.cx,self.cy,self.heading,self.team,self.homeX,self.homeY)
 
 	def run(self):
 		"""run()
 		Tells the bot to start it's pythonish program
 		"""
-		self._sendToRobot("RR")
+		self._sendHullOScmd("RS")
 
 	def stop(self):
 		"""stop()
 		Tells the pixelbot to stop executing its program
 		"""
-		self._sendToRobot("RH")
-		
-	def sendHome(self):
-		"""sendHome()
-		
-		NOTE TO SELF
-		COULD COMPUTE THE ANGLE, TURN THE BOT AND MOVE IT
-		"""
-		cmdList=[]
-		cmdList.append("RH")
-		cmdList.append(f"VShomeX={self.homeX}")
-		cmdList.append(f"VShomeY={self.homeY}")
-		
-		# turn the robot to face homeX,homeY
-		destAngle=MiscLib.angle(self.homeX,self.homeY,self.x,self.y)
-		turn=destAngle-self.angle
-		cmdList.append(f"MR{turn}")
-		
-		dist=MiscLib.distance(self.homeX,self.homeY,self.x,self.y)
-		cmdList.append(f"MF{dist}") # as fast as possible
-		
-		self.sendCmdList(cmdList)	
-		
-	def isHome(self,tolerance=10):
-		# now wait for it to get there
-		if MiscLib.isHome(self.x,self.y,self.homeX,self.homeY):
-			return True
-		return False	
-		
-	def turn(self,angle:int,inTime:int=None):
-		""" turn()
+		self._sendHullOScmd("RH")
 
-		Sends a command to a pixelbot asking it to turn through an angle
-
-		angle:int	number of degrees to turn anti-clockwise, -ve values are clockwise
-		inTime:int	number of seconds in which to turn
+	def loadAndRun(self,filename:str)->None:
 		"""
-		cmd=f"MR{angle}"
-		if inTime:
-			cmd=f"MR{angle},{intime}"
+		send a load command
+		"""
+		cmd=f'load "{filename}"'
+		self._sendPythonishCmd(cmd)
 			
-		self._sendToRobot(cmd)
 				
-	def move(self,distance:int,inTime:int=None)->None:
-		""" move()
-		build a command to tell the pixelbot to move
-
-		distance:int 	the distance (mm) to move, -ve values mean backwards
-		inTime:int 		the number of seconds for the move, None means as fast as possible
+				
+	def OFF_uploadPrograms(self,progs=None)->None:
 		"""
-		cmd=f"MF{distance}"
-		if inTime:
-			cmd=f"MF{distance},{inTime}"
+		upload a group of pythonish programs
+		"""
+		if progs is None:
+			return
+			
+		for filename in progs:
+			with open("programs/"+filename,"r") as f:
+				progTxt=f.readlines()
+			
+			self._uploadPythonishProgram(progTxt,filename)
+
+	def uploadPrograms(self,progs=None)->None:
+		"""
+		upload a group of pythonish programs
+		"""
+		if progs is None:
+			return
+			
+		for filename in progs:
+			print(f"Uploading {filename}")
+			with open(f"programs/{filename}","r") as f:
+				progTxt=f.read()
+				# each file must have a begin and an end
+				self._uploadPythonishProgram(progTxt,filename)
+
+
+	def _beginUpload(self,filename=None):
+		if filename is None:
+			# prog becomes current
+			self._sendHullOScmd("RM") 
+		else:
+			self._sendHullOScmd(f'RM{filename}')
+	
+	def _endUpload(self):
+		self._sendHullOScmd("RX")
 		
-		self._sendToRobot(cmd)
+	def _uploadPythonishProgram(self,progTxt,filename=None):
+		"""
+		upload one program or None
+		"""
 		
-	def setPixels(self,colourName:str):
+		self.stop() # halt the running program
+
+		self._beginUpload(filename)
+			
+		self._sendPythonishCmd(progTxt)
+		
+		self._endUpload()
+		
+		if filename is None:
+			self.run() # immediately run the program ( default active.txt)
+		else:
+			self.loadAndRun(filename) # run the program
+			
+	def OFF_uploadPythonishProgram(self,cmdList,filename=None):
+		"""
+		upload one program or None
+		"""
+		
+		if filename is None:
+			print("Filename missing",flush=True)
+			return
+			
+		self.stop() # halt the running program
+
+		self._beginDownload(filename)
+			
+		self._sendPythonishcmdList(cmdList)
+		
+		self._endDownload()
+		
+		if filename is None:
+			self.run() # immediately run the program
+		else:
+			self.loadAndRun(filename) # run the program
+			
+	def updateVariables(self,variables:dict)->None:
+		"""
+		the variables must already exist in the running program
+		
+		only dist(ance) and angle are required. The bot will turn and move as
+		as asked.
+		
+		Arena Manager checks if bot has completed previous moves (not busy)
+		
+		"""
+			
+		for var in list(variables.keys()):
+			HullOs=f"VS{var}={variables[var]}"
+			self._sendHullOScmd(HullOs)
+
+		
+	def isHome(self,baseSideLenPX:int)->bool:
+		
+		tolerance=round(baseSideLenPX/2)
+		
+		distToHome=round(MiscLib.getHypotenuse(self.cx,self.cy,self.homeX,self.homeY))
+	
+		if distToHome<=tolerance:
+			return True
+		return False
+		
+				
+		
+	def setPixels(self,colourName:str)->None:
 		"""setPixels
 		sets the colour of the pixelbot pixels
 
 		colourName:str	like "red","blue" etc or R B etc
 
 		"""
-		logger.info(f"Set pixels {colourName}")
-		self._sendToRobot(f"PN{colourName}")
+		self._sendHullOScmd(f"PN{colourName}")
 
-if __name__ == "__main__":
-	logging.basicConfig(filename='pixelbotClass.log', filemode="w",level=logging.INFO)
-	logger.info('Started')
+
+		
 	
-	B=pixelbot(20,10,10,34,0,0,0)
+if __name__=="__main__":
 	
-	if not B.mqttc.connected_flag:
-		print("Not connected to MQTT")
+	# botId,cx:int,cy:int,heading:int,homeX:int=0,homeY:int=0):
 	
-	print("Addr:",B._getClbAddress())
+	# using goldilocks for debugging
+	print(f"creating goldilocks",flush=True)
+	B=pixelbot(20,0,0,0,100,100)
 	
-	B.setPixels("R")
+	Vars={"dist":50, "angle":45}
 	
-	B._sendToRobot("PNG")
+	def status(msg):
+		if B.busy:
+			print(f"{msg} is busy")
+		else:
+			print(f"{msg} is NOT busy")
+			
 	
-	print("Done")
+	status("BEFORE")
+	B.updateVariables(Vars)
+	status("AFTER")
+	
+	
+	
+	
+	print(f"Press ctrl-c to exit",flush=True)
+		
+	try:
+		while True:
+			print(f"loop  busy {B.busy}")
+			time.sleep(1)
+	except Exception as e:
+		print(f"Exception {e}")
 	
 	

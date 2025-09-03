@@ -1,0 +1,27 @@
+dist=0
+angle=0
+forever
+  busy=dist+angle
+  if angle!=0
+    red
+    # turn and wait
+    turn angle
+    mwait
+    angle=0
+  if dist!=0
+    yellow
+    move dist #nowait
+    while @moving==1
+      # collision avoidance
+      if @distance<100
+        A=@random-6
+        rangle=10*A
+        turn rangle
+        mwait
+        move 100
+        mwait
+    dist=0
+   green
+  # tell arena we are done, only if we did anything
+  if busy>0
+    send 1

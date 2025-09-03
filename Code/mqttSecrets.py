@@ -1,11 +1,9 @@
-
-# must not be called secrets.py
-
-MQTT_CONNECT_TIMEOUT=10
+MQTT_CONNECT_TIMEOUT=30
 MQTT_KEEP_ALIVE=60
 
 MQTT_COMMAND_TOPIC="lb/command/" # bot listens here
+MQTT_DATA_TOPIC="lb/data/"		 # we listen for messages from the bot here
 
-MQTT_BROKER="your broker goes here"
-MQTT_USER="your username goes here"
-MQTT_PASS="your password goes here"
+MQTT_BROKER="mqtt.connectedhumber.org"
+MQTT_USER="littleboxes"
+MQTT_PASS="i8ew02261TCYdbVSnG1e"
